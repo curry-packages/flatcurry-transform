@@ -10,8 +10,8 @@ module FlatCurry.Transform.Types (
   Path, Step, ExprTransformation, ExprTransformationDet,
   -- * Operations to lift simple transformations to general ones
   makeT, makeTDet,
-  -- * Compose transformations
-  (<*>), combine
+  -- * Compose deterministic transformations
+  (<?>), combine
 )
  where
 
