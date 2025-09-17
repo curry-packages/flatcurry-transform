@@ -1,0 +1,23 @@
+{
+  "name": "flatcurry-transform",
+  "version": "0.0.1",
+  "author": "Michael Hanus <mh@informatik.uni-kiel.de>, Steven Libby <libbys@up.edu>",
+  "synopsis": "Framework to support transformations on FlatCurry programs",
+  "category": [ "Metaprogramming" ],
+  "license": "BSD-3-Clause",
+  "licenseFile": "LICENSE",
+  "dependencies": {
+      "base"         : "^3.3.0",
+      "flatcurry"    : ">= 4.0.0, < 5.0.0",
+      "transformers" : ">= 3.0.0, < 4.0.0",
+      "wl-pprint"    : ">= 3.0.0, < 4.0.0"
+  },
+  "exportedModules": [ "FlatCurry.Transform.Types",
+                       "FlatCurry.Transform.Exec",
+                       "FlatCurry.Transform.ExecDet",
+                       "FlatCurry.Transform.ExecND" ],
+  "source": {
+      "git": "https://github.com/curry-packages/flatcurry-transform.git",
+      "tag": "$version"
+    }
+}
