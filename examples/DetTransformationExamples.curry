@@ -5,15 +5,38 @@
 ------------------------------------------------------------------------------
 
 module DetTransformationExamples
-  ( removeQuestionDet, unDollarDet, unTypeDet, floatDet
+  ( runTransformDet
+  , removeQuestionDet, unDollarDet, unTypeDet, floatDet
   , floatOrDet, makeStrLitDet, toANFDet, caseCancelDet
   )
  where
 
+import FlatCurry.Files   ( readFlatCurry )
+import FlatCurry.Goodies ( updFuncBody, updProgFuncs )
+import FlatCurry.Pretty  ( defaultOptions, ppProg )
 import FlatCurry.Types
+import Text.Pretty       ( pPrint )
 
-import FlatCurry.Transform.Types ( ExprTransformationDet, combine,
-                                   makeTDet )
+import FlatCurry.Transform.ExecDet  ( transformExprDet )
+import FlatCurry.Transform.Types    ( ExprTransformationDet, combine, makeTDet )
+
+------------------------------------------------------------------------------
+-- A simple test environment for deterministic transformations
+-- on FlatCurry programs. For instance,
+--
+--     > runTransformDet (combine [unDollarDet, unTypeDet, caseCancelDet) "TestModule"
+--
+runTransformDet :: ExprTransformationDet -> String -> IO ()
+runTransformDet exptrans mname = do
+  fprog <- readFlatCurry mname
+  printProg "ORIGINAL PROGRAM:" fprog
+  let trexp = transformExprDet exptrans (-1)
+      tprog = updProgFuncs (map (updFuncBody trexp)) fprog
+  printProg "TRANSFORMED PROGRAM:" tprog
+ where
+  printProg title fprog = do
+    putStr $ unlines $ [replicate 70 '=', title, replicate 70 '=']
+    putStrLn $ pPrint $ ppProg defaultOptions fprog
 
 ------------------------------------------------------------------------------
 -- Transform calls to `Prelude.?` by choice nodes.
