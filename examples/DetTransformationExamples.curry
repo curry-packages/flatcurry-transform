@@ -1,18 +1,44 @@
 ------------------------------------------------------------------------------
---- This module contains a couple of simple but useful transformations
---- on FlatCurry expressions.
---- There are all entirely deterministic
+-- This module contains a couple of simple but useful transformations
+-- on FlatCurry expressions.
+-- There are all entirely deterministic
 ------------------------------------------------------------------------------
 
-module DetTransformationExamples (unDollarDet, unTypeDet, floatDet,
-                                  floatOrDet, makeStrLitDet, toANFDet,
-                                  caseCancelDet) where
+module DetTransformationExamples
+  ( removeQuestionDet, unDollarDet, unTypeDet, floatDet
+  , floatOrDet, makeStrLitDet, toANFDet, caseCancelDet
+  )
+ where
 
 import FlatCurry.Types
 
 import FlatCurry.Transform.Types ( ExprTransformationDet, combine,
                                    makeTDet )
 
+------------------------------------------------------------------------------
+-- Transform calls to `Prelude.?` by choice nodes.
+removeQuestionDet :: ExprTransformationDet
+removeQuestionDet = makeTDet "REMOVE-?-CAll" removeQuestionRule
+
+removeQuestionRule :: Expr -> Maybe Expr
+removeQuestionRule e = case e of
+  Comb FuncCall ("Prelude","?") [e1,e2] -> Just $ Or e1 e2
+  _                                     -> Nothing
+
+------------------------------------------------------------------------------
+-- Transformation: transform `Typed` expressions by removing type info.
+--
+-- (e :: t)  ==>  e
+--
+unTypeDet :: ExprTransformationDet
+unTypeDet = makeTDet "UNTYPE" untypeRule
+
+untypeRule :: Expr -> Maybe Expr
+untypeRule exp = case exp of
+  Typed e _ -> Just e
+  _         -> Nothing
+
+------------------------------------------------------------------------------
 --- Transformation: remove `$` if the first argument is a known function
 ---
 --- f $ x  ==>  f x
@@ -29,18 +55,6 @@ undollarRule e =
            1 -> Just $ Comb FuncCall f (pargs++[arg])
            _ -> Just $ Comb (FuncPartCall (n-1)) f (pargs++[arg])
        _ -> Nothing 
-
---- Transformation: transform `Typed` expressions by removing type info.
----
---- (e :: t)  ==>  e
----
-unTypeDet :: ExprTransformationDet
-unTypeDet = makeTDet "UNTYPE" untypeRule
-
-untypeRule :: Expr -> Maybe Expr
-untypeRule exp = case exp of
-                   (Typed e _) -> Just e
-                   _           -> Nothing
 
 --- Transformation: let floating, move nested let expressions?
 --- as is {a1 = e1; a2 = e2; ...}

@@ -1,22 +1,85 @@
 ------------------------------------------------------------------------------
---- This module contains a couple of simple but useful transformations
---- on FlatCurry expressions.
+-- This module contains a couple of simple but useful transformations
+-- on FlatCurry expressions.
 ------------------------------------------------------------------------------
 {-# OPTIONS_FRONTEND -Wno-incomplete-patterns -Wno-overlapping #-}
 
 module TransformationExamples
-  ( unDollar, unType, float, floatOr, makeStrLit
-  , toANF, caseCancel, removeQuestion)
+  ( runTransform
+  , removeQuestion, unType, unDollar, caseCancel
+  , float, floatOr, makeStrLit, toANF
+  )
  where
 
+import FlatCurry.Files   ( readFlatCurry )
+import FlatCurry.Goodies ( updFuncBody, updProgFuncs )
+import FlatCurry.Pretty  ( defaultOptions, ppProg )
 import FlatCurry.Types
+import Text.Pretty       ( pPrint )
 
+import FlatCurry.Transform.Exec  ( transformExpr )
 import FlatCurry.Transform.Types ( ExprTransformation, makeT )
 
---- Transformation: remove `$` if the first argument is a known function
----
---- f $ x  ==>  f x
----
+------------------------------------------------------------------------------
+-- A simple test environment for transformations on FlatCurry programs.
+-- For instance,
+--
+--     > runTransform (unDollar ? unType ? caseCancel) "TestModule"
+--
+runTransform :: ExprTransformation -> String -> IO ()
+runTransform exptrans mname = do
+  fprog <- readFlatCurry mname
+  printProg "ORIGINAL PROGRAM:" fprog
+  let trexp = transformExpr (\() -> exptrans) (-1)
+      tprog = updProgFuncs (map (updFuncBody trexp)) fprog
+  printProg "TRANSFORMED PROGRAM:" tprog
+ where
+  printProg title fprog = do
+    putStr $ unlines $ [replicate 70 '=', title, replicate 70 '=']
+    putStrLn $ pPrint $ ppProg defaultOptions fprog
+
+------------------------------------------------------------------------------
+-- Transform calls to `Prelude.?` by choice nodes.
+removeQuestion :: ExprTransformation
+removeQuestion = makeT "REMOVE-?-CAll" removeQuestionRule
+
+removeQuestionRule :: Expr -> Expr
+removeQuestionRule (Comb FuncCall ("Prelude","?") [e1,e2]) = Or e1 e2
+
+------------------------------------------------------------------------------
+-- Transformation: transform `Typed` expressions by removing type info.
+--
+-- (e :: t)  ==>  e
+--
+unType :: ExprTransformation
+unType = makeT "UNTYPE" unTypeRule
+
+unTypeRule :: Expr -> Expr
+unTypeRule (Typed e _) = e
+
+------------------------------------------------------------------------------
+-- Transformation: simplify case expressions with constant values
+--
+-- case C of { ... ; C -> e ; ... }  ==>  e
+--
+caseCancel :: ExprTransformation
+caseCancel = makeT "CASE CANCEL" caseCancelRule
+
+caseCancelRule :: Expr -> Expr
+caseCancelRule (Case _ (Lit l) (litBranch l e)) = e
+caseCancelRule (Case _ (Comb ConsCall n []) (conBranch n e)) = e
+
+litBranch :: Literal -> Expr -> [BranchExpr]
+litBranch l e = (_++[Branch (LPattern l) e]++_)
+
+conBranch :: QName -> Expr -> [BranchExpr]
+conBranch n e = (_++[Branch (Pattern n []) e]++_)
+
+------------------------------------------------------------------------------
+-- Transformation: remove `$` if the first argument is a known function
+--
+-- f $ x  ==>  f x
+--
 unDollar :: ExprTransformation
 unDollar = makeT "UNDOLLAR" unDollarRule
 
@@ -28,32 +91,6 @@ unDollarRule (dollar f args miss x)
 dollar :: QName -> [Expr] -> Int -> Expr -> Expr
 dollar f args miss x = Comb FuncCall ("Prelude","$")
                             [Comb (FuncPartCall miss) f args, x]
-
--- alternatives 
--- unDollar _ (Comb FuncCall dollar [(Comb (FuncPartCall n) f pargs), arg])
---   | dollar == ("Prelude","$")
---   = if n==1 then (Comb FuncCall f (pargs++[arg]), "UNDOLLAR", 0)
---             else (Comb (FuncPartCall (n-1)) f (pargs++[arg]), "UNDOLLAR", 0)
---
--- unDollar :: ExprTransformation
--- unDollar _ (dollar f args 1 x) = (Comb FuncCall f (args++[x]),
---                                   "UNDOLLAR_MATCH",0)
--- unDollar _ (dollar f args n x) = (Comb (FuncPartCall (n-1)) f (args++[x]), 
---                                   "UNDOLLAR_LESS",0)
---
--- dollar f args n x = Comb FuncCall ("Prelude","$") 
---                           [Comb (FuncPartCall n) f args, x]
-
---- Transformation: transform `Typed` expressions by removing type info.
----
---- (e :: t)  ==>  e
----
-unType :: ExprTransformation
-unType = makeT "UNTYPE" unTypeRule
-
-unTypeRule :: Expr -> Expr
-unTypeRule (Typed e _) = e
-
 
 ------------------------------------------------------------------
 
@@ -142,26 +179,5 @@ trivial (Free _ _)   = False
 trivial (Or _ _)     = False
 trivial (Typed _ _)  = False
 trivial (Case _ _ _) = False
-
-------------------------------------------------------------------
-
-caseCancel :: ExprTransformation
-caseCancel = makeT "CASE CANCEL" caseCancelRule
-
-caseCancelRule :: Expr -> Expr
-caseCancelRule (Case _ (Lit l) (litBranch l e)) = e
-caseCancelRule (Case _ (Comb ConsCall n []) (conBranch n e)) = e
-
-litBranch :: Literal -> Expr -> [BranchExpr]
-litBranch l e = (_++[Branch (LPattern l) e]++_)
-
-conBranch :: QName -> Expr -> [BranchExpr]
-conBranch n e = (_++[Branch (Pattern n []) e]++_)
-
-------------------------------------------------------------------
-
-removeQuestion :: ExprTransformation
-removeQuestion _ (Comb FuncCall ("Prelude","?") [e1,e2]) =
-  (Or e1 e2, "REMOVE-?-CAll", 0)
 
 ------------------------------------------------------------------------------
