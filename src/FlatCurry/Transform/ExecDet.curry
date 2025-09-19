@@ -7,7 +7,7 @@
 ------------------------------------------------------------------------------
 
 module FlatCurry.Transform.ExecDet
-  ( transformExprDet, showTransformExprDet )
+  ( transformExprDet, transformExprMaxDet, showTransformExprDet )
  where
 
 import Data.Tuple.Extra      ( second )
@@ -20,19 +20,23 @@ import FlatCurry.Transform.Utils ( ReWriter(..)
                                  , curVar, newVar, replace, update )
 
 ------------------------------------------------------------------------------
--- | Simplifies an expression according to some expression transformation.
---   Since the expression transformation can be non-deterministically
---   defined, we pass it as a function which is similarly to passing it
---   via run-time choice.
---   The second argument is the maximum number of transformation steps
---   to be applied. If the number is `-1`, then keep going until
---   no transformation can be applied.
-transformExprDet :: ExprTransformationDet -> Int -> Expr -> Expr
-transformExprDet trans n e = fst (runTrExpr trans n (newVar e) e)
+-- | Simplifies an expression according to some deterministic(!)
+--   expression transformation with a bottom-up strategy.
+transformExprDet :: ExprTransformationDet -> Expr -> Expr
+transformExprDet = transformExprMaxDet (-1)
 
-showTransformExprDet :: ExprTransformationDet -> Int -> Expr
-                     -> (Expr,String,Int)
-showTransformExprDet trans n e 
+-- | The same as 'transformExprDet' but takes the maximum number of
+--   transformation steps to be applied as a further argument.
+--   If the number is negative, then keep going until no transformation
+--   can be applied.
+transformExprMaxDet :: Int -> ExprTransformationDet -> Expr -> Expr
+transformExprMaxDet n trans e = fst (runTrExpr trans n (newVar e) e)
+
+-- | The same as 'transformExprMaxDet' but returns also a formatted trace of
+--   all applied transformation steps as well as its total number.
+showTransformExprDet :: Int -> ExprTransformationDet
+                     -> Expr -> (Expr,String,Int)
+showTransformExprDet n trans e 
   = let (e',steps) = runTrExpr trans n (newVar e) e
     in (e', reconstruct e steps, length steps)
 
@@ -95,3 +99,5 @@ reconstruct e ((rule, p, rhs):steps) =
   reconstruct e' steps
  where
   e' = replace e (reverse p) rhs
+
+------------------------------------------------------------------------------

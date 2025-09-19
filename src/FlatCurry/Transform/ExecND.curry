@@ -1,15 +1,15 @@
 ------------------------------------------------------------------------------
 -- | Author : Michael Hanus, Steven Libby
---   Version: August 2025
+--   Version: September 2025
 --
 -- Implementation of transforming FlatCurry expressions by applying
--- non-deterministically defined expressions transformations
+-- partially and non-deterministically defined expression transformations
 -- as long as possible with a chaotic (non-deterministic) strategy.
 ------------------------------------------------------------------------------
 {-# OPTIONS_FRONTEND -Wno-incomplete-patterns -Wno-overlapping #-}
 
 module FlatCurry.Transform.ExecND
-  ( transformExprND )
+  ( transformExprND, transformExprMaxND )
  where
 
 import Control.Search.Unsafe ( oneValue )
@@ -21,18 +21,22 @@ import FlatCurry.Transform.Utils ( newVar )
 
 ------------------------------------------------------------------------------
 -- | Simplifies a FlatCurry expression according to some expression
---   transformation.
---   Since the expression transformation can be non-deterministically
---   defined, we pass it as a function which is similarly to passing it
+--   transformation which can be partially or non-deterministically defined.
+--   Since the expression transformation might be non-deterministic,
+--   we pass it as a function which is similarly to passing it
 --   via run-time choice.
---   The second argument is the maximum number of transformation steps
---   to be applied. If the number is `-1`, then keep going until
---   no transformation can be applied.
----
---   To apply transformation steps, a subexpression is non-deterministically
+--
+--   To apply transformation steps, some subexpression is non-deterministically
 --   selected.
-transformExprND :: (() -> ExprTransformation) -> Int -> Expr -> Expr
-transformExprND trans n e = runTrExprND trans n (newVar e) e
+transformExprND :: (() -> ExprTransformation) -> Expr -> Expr
+transformExprND = transformExprMaxND (-1)
+
+-- | The same as 'transformExprND' but takes the maximum number of
+--   transformation steps to be applied as a further argument.
+--   If the number is negative, then keep going until no transformation
+--   can be applied.
+transformExprMaxND :: Int -> (() -> ExprTransformation) -> Expr -> Expr
+transformExprMaxND n trans e = runTrExprND trans n (newVar e) e
 
 runTrExprND :: (() -> ExprTransformation) -> Int -> VarIndex -> Expr -> Expr
 runTrExprND trans n nvar exp

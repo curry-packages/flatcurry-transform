@@ -10,5 +10,6 @@ add m n = ((+) $ m) $ n
 h :: Int -> Int
 h x = id $ (x :: Int)
 
+case1 :: Bool
 case1 = case True of False -> True
                      True  -> False

@@ -32,7 +32,7 @@ runTransform :: ExprTransformation -> String -> IO ()
 runTransform exptrans mname = do
   fprog <- readFlatCurry mname
   printProg "ORIGINAL PROGRAM:" fprog
-  let trexp = transformExpr (\() -> exptrans) (-1)
+  let trexp = transformExpr (\() -> exptrans)
       tprog = updProgFuncs (map (updFuncBody trexp)) fprog
   printProg "TRANSFORMED PROGRAM:" tprog
  where

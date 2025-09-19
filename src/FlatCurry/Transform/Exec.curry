@@ -3,12 +3,12 @@
 --   Version: September 2025
 --
 -- Implementation of transforming FlatCurry expressions by applying
--- non-deterministically defined expressions transformations
+-- partially and non-deterministically defined expression transformations
 -- as long as possible.
 ------------------------------------------------------------------------------
 
 module FlatCurry.Transform.Exec
-  ( transformExpr, transformExprN, showTransformExpr )
+  ( transformExpr, transformExprMax, transformExprN, showTransformExpr )
  where
 
 import Control.Search.Unsafe ( oneValue )
@@ -22,61 +22,40 @@ import FlatCurry.Transform.Types
 import FlatCurry.Transform.Utils ( ReWriter(..)
                                  , curVar, newVar, replace, update )
 
--- Loop over each function and apply a specified transformation.
--- The transformation is allowed to return an empty list
--- if no transformation is applied
--- However, if any transformation is applied, then the transformed functions are
--- passed into opt again to see if they can be transformed further.
---
--- @param opt - the transformationto apply to each function
---              returns an empty list if no transformation is applied
---              otherwise it returns a list of 1 or more transformed functions
--- @param (f:fs) - the list of funcions to apply the transformation
--- @return a list of transformed functions.  This list may be longer than the origonal list.
-loop :: (Int -> FuncDecl -> [FuncDecl]) -> Int -> [FuncDecl] -> [FuncDecl]
-loop _   _ []     = []
-loop opt n (f:fs)
-  = fcase opt n f of
-      []      -> f : loop opt n fs
-      y@(_:_) -> loop opt (n+1) (y++fs)
-
-loopIO :: (Int -> FuncDecl -> IO [FuncDecl]) -> Int -> [FuncDecl]
-       -> IO [FuncDecl]
-loopIO _   _ []     = return []
-loopIO opt n (f:fs) = do y <- opt n f
-                         if null y
-                           then do fs' <- loopIO opt n fs
-                                   return (f:fs')
-                           else loopIO opt (n+1) (y++fs)
-
 ------------------------------------------------------------------------------
 -- | Simplifies a FlatCurry expression according to some expression
---   transformation.
---   Since the expression transformation can be non-deterministically
---   defined, we pass it as a function which is similarly to passing it
+--   transformation which can be partially or non-deterministically defined.
+--   Since the expression transformation might be non-deterministic,
+--   we pass it as a function which is similarly to passing it
 --   via run-time choice.
---   The second argument is the maximum number of transformation steps
---   to be applied. If the number is `-1`, then keep going until
---   no transformation can be applied.
----
+--
 --   Although the single transformation steps can be non-deterministic,
 --   the strategy to apply such steps is deterministic since it is applied
 --   in a bottom-up manner: if there is some node to be transformed,
 --   all child nodes are transformed before transformation rules are applied
 --   to the node itself.
-transformExpr :: (() -> ExprTransformation) -> Int -> Expr -> Expr
-transformExpr trans n e = fst (runTrExpr trans n (newVar e) e)
+transformExpr :: (() -> ExprTransformation) -> Expr -> Expr
+transformExpr = transformExprMax (-1)
 
--- | The same as 'transformExpr' but return also the number of applied
+-- | The same as 'transformExpr' but takes the maximum number of
+--   transformation steps to be applied as a further argument.
+--   If the number is negative, then keep going until no transformation
+--   can be applied.
+transformExprMax :: Int -> (() -> ExprTransformation) -> Expr -> Expr
+transformExprMax n trans e = fst (runTrExpr trans n (newVar e) e)
+
+-- | The same as 'transformExprMax' but returns also the number of applied
 --   transformation steps.
-transformExprN :: (() -> ExprTransformation) -> Int -> Expr -> (Expr,Int)
-transformExprN trans n e =
+transformExprN :: Int -> (() -> ExprTransformation) -> Expr -> (Expr,Int)
+transformExprN n trans e =
   let (e',steps) = runTrExpr trans n (newVar e) e
   in (e', length steps)
 
-showTransformExpr :: (() -> ExprTransformation) -> Int -> Expr
+-- | The same as 'transformExprMax' but returns also a formatted trace of
+--   all applied transformation steps as well as its total number.
+showTransformExpr :: Int -> (() -> ExprTransformation) -> Expr
                   -> (Expr,String,Int)
-showTransformExpr trans n e = let (e',steps) = runTrExpr trans n (newVar e) e
+showTransformExpr n trans e = let (e',steps) = runTrExpr trans n (newVar e) e
                               in (e', reconstruct e steps, length steps)
 
 -- Apply an expression transformation (with a maximum number of steps
@@ -164,3 +143,5 @@ has e = e
       ? (Or _ (has e))
       ? (Case _ _ (_ ++ [(Branch _ (has e))] ++ _))
       ? (Case _ (has e) _)
+
+------------------------------------------------------------------------------

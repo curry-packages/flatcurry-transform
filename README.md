@@ -16,11 +16,11 @@ can be defined by
     unTypeRule (Typed e _) = e
 
 Note that this operation is partially defined since it fails
-on non-`Typed` expressions. However, it is a natural representation
+on non-"`Typed`" expressions. However, it is a natural representation
 of the idea of this transformation.
 
 Similarly, a transformation to remove occurrences of the prelude
-operation `?` by replacing them by the choice construct of FlatCurry
+operation "`?`" by replacing them by the choice construct of FlatCurry
 can be defined by
 
     removeQuestionRule :: Expr -> Expr
