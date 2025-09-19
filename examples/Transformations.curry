@@ -1,10 +1,13 @@
 ------------------------------------------------------------------------------
+-- | Author : Michael Hanus, Steven Libby
+--   Version: September 2025
+--
 -- This module contains a couple of simple but useful transformations
 -- on FlatCurry expressions.
 ------------------------------------------------------------------------------
 {-# OPTIONS_FRONTEND -Wno-incomplete-patterns -Wno-overlapping #-}
 
-module TransformationExamples
+module Transformations
   ( runTransform
   , removeQuestion, unType, unDollar, caseCancel
   , float, floatOr, makeStrLit, toANF
@@ -22,7 +25,10 @@ import FlatCurry.Transform.Types ( ExprTransformation, makeT )
 
 ------------------------------------------------------------------------------
 -- A simple test environment for transformations on FlatCurry programs.
--- For instance,
+-- It applies the transformation (first argument) to the module
+-- (second argument) and shows the original and transformed FlatCurry program
+-- in pretty-printed form.
+-- For instance, execute
 --
 --     > runTransform (unDollar ? unType ? caseCancel) "TestModule"
 --
@@ -39,7 +45,8 @@ runTransform exptrans mname = do
     putStrLn $ pPrint $ ppProg defaultOptions fprog
 
 ------------------------------------------------------------------------------
--- Transform calls to `Prelude.?` by choice nodes.
+-- Transform calls to `Prelude.?` into FlatCurry choice nodes.
+--
 removeQuestion :: ExprTransformation
 removeQuestion = makeT "REMOVE-?-CAll" removeQuestionRule
 
@@ -47,15 +54,32 @@ removeQuestionRule :: Expr -> Expr
 removeQuestionRule (Comb FuncCall ("Prelude","?") [e1,e2]) = Or e1 e2
 
 ------------------------------------------------------------------------------
--- Transformation: transform `Typed` expressions by removing type info.
+-- Transform `Typed` expressions by removing type info, i.e.,
 --
--- (e :: t)  ==>  e
+--     (e :: t)  ==>  e
 --
 unType :: ExprTransformation
 unType = makeT "UNTYPE" unTypeRule
 
 unTypeRule :: Expr -> Expr
 unTypeRule (Typed e _) = e
+
+------------------------------------------------------------------------------
+-- Transformation: remove `$` if the first argument is a known function
+--
+-- f $ x  ==>  f x
+--
+unDollar :: ExprTransformation
+unDollar = makeT "UNDOLLAR" unDollarRule
+
+unDollarRule :: Expr -> Expr
+unDollarRule (dollar f args miss x) 
+ | miss == 1 = Comb FuncCall f (args++[x])
+ | miss > 1  = Comb (FuncPartCall (miss-1)) f (args ++ [x])
+
+dollar :: QName -> [Expr] -> Int -> Expr -> Expr
+dollar f args miss x = Comb FuncCall ("Prelude","$")
+                            [Comb (FuncPartCall miss) f args, x]
 
 ------------------------------------------------------------------------------
 -- Transformation: simplify case expressions with constant values
@@ -75,24 +99,8 @@ litBranch l e = (_++[Branch (LPattern l) e]++_)
 conBranch :: QName -> Expr -> [BranchExpr]
 conBranch n e = (_++[Branch (Pattern n []) e]++_)
 
-------------------------------------------------------------------------------
--- Transformation: remove `$` if the first argument is a known function
---
--- f $ x  ==>  f x
---
-unDollar :: ExprTransformation
-unDollar = makeT "UNDOLLAR" unDollarRule
-
-unDollarRule :: Expr -> Expr
-unDollarRule (dollar f args miss x) 
- | miss == 1 = Comb FuncCall f (args++[x])
- | miss > 1  = Comb (FuncPartCall (miss-1)) f (args++[x])
-
-dollar :: QName -> [Expr] -> Int -> Expr -> Expr
-dollar f args miss x = Comb FuncCall ("Prelude","$")
-                            [Comb (FuncPartCall miss) f args, x]
-
 ------------------------------------------------------------------
+-- Transformation: let floating, move nested let expressions
 
 float :: ExprTransformation
 float = makeT "FLOAT" floatR
@@ -111,6 +119,11 @@ floatR (Comb ct n (as++[Free vs e]++bs))   = Free vs (Comb ct n (as++[e]++bs))
 floatR (Case ct (Let vs e) bs)             = Let vs (Case ct e bs)
 floatR (Case ct (Free vs e) bs)            = Free vs (Case ct e bs)
 
+-- Transformation: move nested let expressions out of choices, i.e.,
+--
+--     (let vs in e1) ? e2       => let vs in (e1 ? e2)
+--     e1 ? (let vs in e2)       => let vs in (e1 ? e2)
+--
 floatOr :: ExprTransformation
 floatOr = makeT "FLOAT OR" floatR
 
@@ -118,11 +131,13 @@ floatOrR :: Expr -> Expr
 floatOrR (Or (Let vs e1) e2) = Let vs (Or e1 e2)
 floatOrR (Or e1 (Let vs e2)) = Let vs (Or e1 e2)
 
-------------------------------------------------------------------
-
--- Transform a string, i.e., a finite list of characters, into
--- a single constant represented in FlatCurry by
--- `Comb ConsCall ("StringConst",s) []` (where `s` is the actual string).
+------------------------------------------------------------------------------
+-- Transform a string literal, i.e., a finite list of characters,
+-- into a single constant represented in FlatCurry by
+--
+--     Comb ConsCall ("StringConst",s) []
+--
+-- (where `s` is the actual string).
 makeStrLit :: ExprTransformation
 makeStrLit = makeT "STRING" makeStrLitRule
 
@@ -139,9 +154,18 @@ strNil    ()  = Comb ConsCall ("Prelude","[]") []
 strConst :: String -> Expr
 strConst x = Comb ConsCall ("StringConst",x) []
 
-------------------------------------------------------------------
-
-
+------------------------------------------------------------------------------
+-- Transform an expression to its A-Normal Form, i.e., perform
+-- the following transformations, where
+-- e is a non-trivial expression,
+-- v is a trivial expression, and
+-- n is a fresh variable:
+--
+--     case e of bs  =>  let n = e in case n of bs
+--     f (vs e es)   =>  let n = e in f (vs n es)
+--     e1 ? e2       =>  let n = e1 in n ? e2
+--     v1 ? e2       =>  let n = e2 in v1 ? e2
+--
 toANF :: ExprTransformation
 toANF (n,_) (Case ct e bs)
  | not (trivial e) = (Let [(n,e)] (Case ct (Var n) bs), "ANF CASE", 1)

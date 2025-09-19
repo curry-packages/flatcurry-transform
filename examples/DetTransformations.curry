@@ -1,13 +1,17 @@
 ------------------------------------------------------------------------------
--- This module contains a couple of simple but useful transformations
--- on FlatCurry expressions.
--- There are all entirely deterministic
+-- | Author : Michael Hanus, Steven Libby
+--   Version: September 2025
+--
+-- This module contains a couple of simple but useful deterministic(!)
+-- transformations on FlatCurry expressions.
 ------------------------------------------------------------------------------
+{-# OPTIONS_FRONTEND -Wno-incomplete-patterns #-}
 
-module DetTransformationExamples
+module DetTransformations
   ( runTransformDet
   , removeQuestionDet, unDollarDet, unTypeDet, floatDet
   , floatOrDet, makeStrLitDet, toANFDet, caseCancelDet
+  , combine -- from FlatCurry.Transform.Types
   )
  where
 
@@ -21,10 +25,13 @@ import FlatCurry.Transform.ExecDet  ( transformExprDet )
 import FlatCurry.Transform.Types    ( ExprTransformationDet, combine, makeTDet )
 
 ------------------------------------------------------------------------------
--- A simple test environment for deterministic transformations
--- on FlatCurry programs. For instance,
+-- A simple test operation for deterministic transformations
+-- on FlatCurry programs. It applies the deterministic(!) transformation
+-- (first argument) to the module (second argument) and shows the
+-- original and transformed FlatCurry program in pretty-printed form.
+-- For instance, execute
 --
---     > runTransformDet (combine [unDollarDet, unTypeDet, caseCancelDet) "TestModule"
+--     > runTransformDet (combine [unDollarDet, unTypeDet, caseCancelDet]) "TestModule"
 --
 runTransformDet :: ExprTransformationDet -> String -> IO ()
 runTransformDet exptrans mname = do
@@ -39,7 +46,8 @@ runTransformDet exptrans mname = do
     putStrLn $ pPrint $ ppProg defaultOptions fprog
 
 ------------------------------------------------------------------------------
--- Transform calls to `Prelude.?` by choice nodes.
+-- Transform calls to `Prelude.?` into FlatCurry choice nodes.
+--
 removeQuestionDet :: ExprTransformationDet
 removeQuestionDet = makeTDet "REMOVE-?-CAll" removeQuestionRule
 
@@ -49,9 +57,9 @@ removeQuestionRule e = case e of
   _                                     -> Nothing
 
 ------------------------------------------------------------------------------
--- Transformation: transform `Typed` expressions by removing type info.
+-- Transform `Typed` expressions by removing type info, i.e.,
 --
--- (e :: t)  ==>  e
+--     (e :: t)  ==>  e
 --
 unTypeDet :: ExprTransformationDet
 unTypeDet = makeTDet "UNTYPE" untypeRule
@@ -62,59 +70,87 @@ untypeRule exp = case exp of
   _         -> Nothing
 
 ------------------------------------------------------------------------------
---- Transformation: remove `$` if the first argument is a known function
----
---- f $ x  ==>  f x
----
+-- Transformation: remove `$` if the first argument is a known function
+--
+-- f $ x  ==>  f x
+--
 unDollarDet :: ExprTransformationDet
 unDollarDet = makeTDet "UNDOLLAR" undollarRule
 
 undollarRule :: Expr -> Maybe Expr
-undollarRule e = 
-  case e of
-       Comb FuncCall ("Prelude","$") [(Comb (FuncPartCall n) f pargs), arg] ->
-         case n of
-           0 -> Nothing
-           1 -> Just $ Comb FuncCall f (pargs++[arg])
-           _ -> Just $ Comb (FuncPartCall (n-1)) f (pargs++[arg])
-       _ -> Nothing 
+undollarRule e = case e of
+  Comb FuncCall ("Prelude","$") [(Comb (FuncPartCall n) f pargs), arg]
+    -> case n of
+         0 -> Nothing
+         1 -> Just $ Comb FuncCall f (pargs ++ [arg])
+         _ -> Just $ Comb (FuncPartCall (n-1)) f (pargs ++ [arg])
+  _ -> Nothing 
 
---- Transformation: let floating, move nested let expressions?
---- as is {a1 = e1; a2 = e2; ...}
---- as bs is {a1 = e1; ... ak = e2; b1 = e_(k+1) ... }
+------------------------------------------------------------------------------
+-- Transformation: simplify case expressions with constant values
+--
+-- case C of { ... ; C -> e ; ... }  ==>  e
+--
+caseCancelDet :: ExprTransformationDet
+caseCancelDet = combine [makeTDet "CASE CANCEL CONS" caseCon,
+                         makeTDet "CASE CANCEL LIT"  caseLit]
+
+
+caseLit :: Expr -> Maybe Expr
+caseLit exp = case exp of
+                Case _ (Lit l) bs -> findBranch l bs
+                _                 -> Nothing
+ where findBranch _ [] = Nothing
+       findBranch l (Branch (LPattern p) e : bs)
+         | l == p    = Just e
+         | otherwise = findBranch l bs
+
+caseCon :: Expr -> Maybe Expr
+caseCon exp = case exp of
+                Case _ (Comb ConsCall n []) bs -> findBranch n bs
+                _                              -> Nothing
+ where findBranch _ [] = Nothing
+       findBranch n (Branch (Pattern p vs) e : bs)
+         | n == p && null vs = Just e
+         | otherwise         = findBranch n bs
+
+------------------------------------------------------------------------------
+-- Transformation: let floating, move nested let expressions
+-- as is {a1 = e1; a2 = e2; ...}
+-- as bs is {a1 = e1; ... ak = e2; b1 = e_(k+1) ... }
 ---
---- float1
---- let x = let vs       let vs 
----         in e1    =>  in let x = e1
---- in e2                   in e2     
+-- float1
+-- let x = let vs       let vs 
+--         in e1    =>  in let x = e1
+-- in e2                   in e2     
 ---
---- float2
---- let x = let vs free      let vs free
----         in e1        =>  in let x = e1
---- in e2                       in e2     
+-- float2
+-- let x = let vs free      let vs free
+--         in e1        =>  in let x = e1
+-- in e2                       in e2     
 ---
---- float3
---- let (as (x = let vs in e1) bs => let as bs vs (x = e1)
---- in e2                            in e2
+-- float3
+-- let (as (x = let vs in e1) bs => let as bs vs (x = e1)
+-- in e2                            in e2
 ---
---- float4
---- let as (x = let vs free in e1) bs    let vs free
---- in e2                             => in let as bs (x = e1)
----                                         in e2
+-- float4
+-- let as (x = let vs free in e1) bs    let vs free
+-- in e2                             => in let as bs (x = e1)
+--                                         in e2
 ---
---- float5,6,7,8
---- (let vs in e1) ? e2       => let vs in (e1 ? e2)
---- e1 ? (let vs in e2)       => let vs in (e1 ? e2)
---- (let vs free in e1) ? e2  => let vs free in (e1 ? e2)
---- e1 ? (let vs free in e2)  => let vs free in (e1 ? e2)
+-- float5,6,7,8
+-- (let vs in e1) ? e2       => let vs in (e1 ? e2)
+-- e1 ? (let vs in e2)       => let vs in (e1 ? e2)
+-- (let vs free in e1) ? e2  => let vs free in (e1 ? e2)
+-- e1 ? (let vs free in e2)  => let vs free in (e1 ? e2)
 ---
---- float9, float10
---- f (as (let vs in e) bs)      => let vs in f (as e bs)
---- f (as (let vs free in e) bs) => let vs free in f (as e bs)
+-- float9, float10
+-- f (as (let vs in e) bs)      => let vs in f (as e bs)
+-- f (as (let vs free in e) bs) => let vs free in f (as e bs)
 ---
---- float11, float12
---- case (let vs in e) of {...}      => let vs in case e of {...}
---- case (let vs free in e) of {...} => let vs free in case e of {...}
+-- float11, float12
+-- case (let vs in e) of {...}      => let vs in case e of {...}
+-- case (let vs free in e) of {...} => let vs free in case e of {...}
 
 
 floatDet :: ExprTransformationDet
@@ -122,6 +158,11 @@ floatDet = combine (map (makeTDet "FLOAT")
                       [float1,float2,float3,float4,float5,float6,
                        float7,float8,float9,float10,float11,float12])
 
+-- Transformation: move nested let expressions out of choices, i.e.,
+--
+--     (let vs in e1) ? e2       => let vs in (e1 ? e2)
+--     e1 ? (let vs in e2)       => let vs in (e1 ? e2)
+--
 floatOrDet :: ExprTransformationDet
 floatOrDet = combine (map (makeTDet "FLOAT OR") [float5,float6])
 
@@ -205,53 +246,6 @@ float12 exp = case exp of
                 Case ct (Free vs e) bs -> Just $ Free vs (Case ct e bs)
                 _ -> Nothing
 
---isLit e = case e of
---               Lit _ -> True
---               _     -> False
---
---isVar e = case e of
---               Var _ -> True
---               _     -> False
---
---isLet e = case e of
---               Let _ _ -> True
---               _       -> False
---
---isFree e = case e of
---                Free _ _ -> True
---                _        -> False
---
---isOr e = case e of
---              Or _ _ -> True
---              _      -> False
---
---isComb e = case e of
---                Comb _ _ _ -> True
---                _          -> False
---
---isCase e = case e of
---                Comb _ _ _ -> True
---                _          -> False
---
---isTyped e = case e of
---                 Comb _ _ _ -> True
---                 _          -> False
---
---find :: (Expr -> Bool) -> [Expr] -> Maybe (Expr,[Expr])
---find p []     = Nothing
---find p (e:es)
--- | p e        = Just (e,es)
--- | otherwise  = do (x,xs) <- find p es
---                   Just (x,e:xs)
---
---findBind :: (Expr -> Bool) -> [(VarIndex,Expr)] 
---         -> Maybe (VarIndex,Expr,[(VarIndex,Expr)])
---findBind p []         = Nothing
---findBind p ((v,e):vs) 
--- | p e                = Just (v,e,vs)
--- | otherwise          = do (v',e',vs') <- findBind p vs
---                           Just (v',e',(v,e):vs')
-
 findLet :: [(VarIndex,Expr)] -> Maybe ([(VarIndex,Expr)], 
                                        VarIndex,
                                        [(VarIndex,Expr)],
@@ -293,16 +287,12 @@ findFreeE (e:es) = case e of
                                        Just (e:as,vs,e',bs)
 
 --------------------------------------------------------------------
---- Make String Literal
----
---- translates strings in list form to be a single constructor with
---- no arugments.
----
---- example 'h' : 'e' : 'l' : 'l' : 'o'
---- becomes StringConst.hello
---- In FlatCurry this is (Comb ConsCall ("StringConst","hello") [])
---------------------------------------------------------------------
-
+-- Transform a string literal, i.e., a finite list of characters,
+-- into a single constant represented in FlatCurry by
+--
+--     Comb ConsCall ("StringConst",s) []
+--
+-- (where `s` is the actual string).
 makeStrLitDet :: ExprTransformationDet
 makeStrLitDet = makeTDet "STRING" strLitDet
 
@@ -318,20 +308,18 @@ strLitDet e = case e of
 strConst :: String -> Expr
 strConst x = Comb ConsCall ("StringConst",x) []
 
------------------------------------------------------------
----
---- Transform expresion to A-Normal Form
----
---- e is a non-trivial expression
---- v is a trivial expression
---- n is a fresh variable
----
---- case e of bs => let n = e in case n of bs
---- f (vs e es)  => let n = e in f (vs n es)
---- e1 ? e2      => let n = e1 in n ? e2
---- v1 ? e2      => let n = e2 in v1 ? e2
------------------------------------------------------------
-
+------------------------------------------------------------------------------
+-- Transform an expression to its A-Normal Form, i.e., perform
+-- the following transformations, where
+-- e is a non-trivial expression,
+-- v is a trivial expression, and
+-- n is a fresh variable:
+--
+--     case e of bs  =>  let n = e in case n of bs
+--     f (vs e es)   =>  let n = e in f (vs n es)
+--     e1 ? e2       =>  let n = e1 in n ? e2
+--     v1 ? e2       =>  let n = e2 in v1 ? e2
+--
 toANFDet :: ExprTransformationDet
 toANFDet (n,_) e = 
   case e of
@@ -369,27 +357,5 @@ trivial (Or _ _)     = False
 trivial (Typed _ _)  = False
 trivial (Case _ _ _) = False
 
------------------------------------------------------------
+------------------------------------------------------------------------------
 
-caseCancelDet :: ExprTransformationDet
-caseCancelDet = combine [makeTDet "CASE CANCEL CONS" caseCon,
-                         makeTDet "CASE CANCEL LIT"  caseLit]
-
-
-caseLit :: Expr -> Maybe Expr
-caseLit exp = case exp of
-                Case _ (Lit l) bs -> findBranch l bs
-                _                 -> Nothing
- where findBranch _ [] = Nothing
-       findBranch l (Branch (LPattern p) e : bs)
-         | l == p    = Just e
-         | otherwise = findBranch l bs
-
-caseCon :: Expr -> Maybe Expr
-caseCon exp = case exp of
-                Case _ (Comb ConsCall n []) bs -> findBranch n bs
-                _                              -> Nothing
- where findBranch _ [] = Nothing
-       findBranch n (Branch (Pattern p vs) e : bs)
-         | n == p && null vs = Just e
-         | otherwise         = findBranch n bs
