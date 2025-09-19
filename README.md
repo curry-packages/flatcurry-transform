@@ -58,3 +58,10 @@ in the programs
 
 - `Transformations.curry` (functional logic transformations as described above)
 - `DetTransformations.curry` (deterministic transformations)
+
+Documentation
+-------------
+
+More details explaining the ideas and advantages of this kind of
+program transformations are available in a
+[paper on functional logic program transformations](https://www.michaelhanus.de/papers/WLP25.html).
