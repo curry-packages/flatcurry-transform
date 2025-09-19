@@ -8,7 +8,7 @@
 {-# OPTIONS_FRONTEND -Wno-incomplete-patterns -Wno-overlapping #-}
 
 module Transformations
-  ( runTransform
+  ( transTestModule, runTransform
   , removeQuestion, unType, unDollar, caseCancel
   , float, floatOr, makeStrLit, toANF
   )
@@ -24,14 +24,10 @@ import FlatCurry.Transform.Exec  ( transformExpr )
 import FlatCurry.Transform.Types ( ExprTransformation, makeT )
 
 ------------------------------------------------------------------------------
--- A simple test environment for transformations on FlatCurry programs.
+-- A simple operation to test transformations on FlatCurry programs.
 -- It applies the transformation (first argument) to the module
 -- (second argument) and shows the original and transformed FlatCurry program
 -- in pretty-printed form.
--- For instance, execute
---
---     > runTransform (unDollar ? unType ? caseCancel) "TestModule"
---
 runTransform :: ExprTransformation -> String -> IO ()
 runTransform exptrans mname = do
   fprog <- readFlatCurry mname
@@ -43,6 +39,10 @@ runTransform exptrans mname = do
   printProg title fprog = do
     putStr $ unlines $ [replicate 70 '=', title, replicate 70 '=']
     putStrLn $ pPrint $ ppProg defaultOptions fprog
+
+-- Transform the program `TestModule.curry` with three simple transformations.
+transTestModule :: IO ()
+transTestModule = runTransform (unDollar ? unType ? caseCancel) "TestModule"
 
 ------------------------------------------------------------------------------
 -- Transform calls to `Prelude.?` into FlatCurry choice nodes.

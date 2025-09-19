@@ -8,10 +8,9 @@
 {-# OPTIONS_FRONTEND -Wno-incomplete-patterns #-}
 
 module DetTransformations
-  ( runTransformDet
+  ( transTestModule, runTransformDet
   , removeQuestionDet, unDollarDet, unTypeDet, floatDet
   , floatOrDet, makeStrLitDet, toANFDet, caseCancelDet
-  , combine -- from FlatCurry.Transform.Types
   )
  where
 
@@ -25,14 +24,10 @@ import FlatCurry.Transform.ExecDet  ( transformExprDet )
 import FlatCurry.Transform.Types    ( ExprTransformationDet, combine, makeTDet )
 
 ------------------------------------------------------------------------------
--- A simple test operation for deterministic transformations
+-- A simple operation to test deterministic transformations
 -- on FlatCurry programs. It applies the deterministic(!) transformation
 -- (first argument) to the module (second argument) and shows the
 -- original and transformed FlatCurry program in pretty-printed form.
--- For instance, execute
---
---     > runTransformDet (combine [unDollarDet, unTypeDet, caseCancelDet]) "TestModule"
---
 runTransformDet :: ExprTransformationDet -> String -> IO ()
 runTransformDet exptrans mname = do
   fprog <- readFlatCurry mname
@@ -44,6 +39,11 @@ runTransformDet exptrans mname = do
   printProg title fprog = do
     putStr $ unlines $ [replicate 70 '=', title, replicate 70 '=']
     putStrLn $ pPrint $ ppProg defaultOptions fprog
+
+-- Transform the program `TestModule.curry` with three simple transformations.
+transTestModule :: IO ()
+transTestModule =
+  runTransformDet (combine [unDollarDet, unTypeDet, caseCancelDet]) "TestModule"
 
 ------------------------------------------------------------------------------
 -- Transform calls to `Prelude.?` into FlatCurry choice nodes.

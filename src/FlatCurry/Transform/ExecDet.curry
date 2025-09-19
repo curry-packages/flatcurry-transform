@@ -1,6 +1,6 @@
 ------------------------------------------------------------------------------
 -- | Author : Michael Hanus, Steven Libby
---   Version: August 2025
+--   Version: September 2025
 --
 -- Implementation of transforming FlatCurry expressions by applying
 -- deterministically defined expressions transformations as long as possible.
@@ -10,14 +10,16 @@ module FlatCurry.Transform.ExecDet
   ( transformExprDet, showTransformExprDet )
  where
 
+import Data.Tuple.Extra      ( second )
 import FlatCurry.Types
 import FlatCurry.Pretty      ( ppExp, Options(..), QualMode(..) )
 import Text.Pretty           ( pPrint )
 
 import FlatCurry.Transform.Types
-import FlatCurry.Transform.Utils
+import FlatCurry.Transform.Utils ( ReWriter(..)
+                                 , curVar, newVar, replace, update )
 
-
+------------------------------------------------------------------------------
 -- | Simplifies an expression according to some expression transformation.
 --   Since the expression transformation can be non-deterministically
 --   defined, we pass it as a function which is similarly to passing it
@@ -41,7 +43,7 @@ runTrExpr trans n v e
  | otherwise = let (e', s, v', seen) = runRewriter (run trans [] e) v
                in case seen of
                     False -> (e', s)
-                    True  -> mapSnd (s++) $ runTrExpr trans (n-1) v' e'
+                    True  -> second (s++) $ runTrExpr trans (n-1) v' e'
 
 run :: ExprTransformationDet -> Path -> Expr -> ReWriter Expr
 run _ _ e@(Var _) = return e

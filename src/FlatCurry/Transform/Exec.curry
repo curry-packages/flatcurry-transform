@@ -1,6 +1,6 @@
 ------------------------------------------------------------------------------
 -- | Author : Michael Hanus, Steven Libby
---   Version: August 2025
+--   Version: September 2025
 --
 -- Implementation of transforming FlatCurry expressions by applying
 -- non-deterministically defined expressions transformations
@@ -13,12 +13,14 @@ module FlatCurry.Transform.Exec
 
 import Control.Search.Unsafe ( oneValue )
 
+import Data.Tuple.Extra      ( second )
 import FlatCurry.Types
 import FlatCurry.Pretty      ( ppExp, Options(..), QualMode(..) )
 import Text.Pretty           ( pPrint )
 
 import FlatCurry.Transform.Types
-import FlatCurry.Transform.Utils
+import FlatCurry.Transform.Utils ( ReWriter(..)
+                                 , curVar, newVar, replace, update )
 
 -- Loop over each function and apply a specified transformation.
 -- The transformation is allowed to return an empty list
@@ -87,7 +89,7 @@ runTrExpr trans n v e
  | otherwise = let (e', s, v', seen) = runRewriter (run trans [] e) v
                in case seen of
                     False -> (e', s)
-                    True  -> mapSnd (s++) $ runTrExpr trans (n-1) v' e'
+                    True  -> second (s++) $ runTrExpr trans (n-1) v' e'
 
 run :: (() -> ExprTransformation) -> Path -> Expr -> ReWriter Expr
 run _ _ e@(Var _) = return e
