@@ -15,12 +15,11 @@ module Transformations
  where
 
 import FlatCurry.Files   ( readFlatCurry )
-import FlatCurry.Goodies ( updFuncBody, updProgFuncs )
 import FlatCurry.Pretty  ( defaultOptions, ppProg )
 import FlatCurry.Types
 import Text.Pretty       ( pPrint )
 
-import FlatCurry.Transform.Exec  ( transformExpr )
+import FlatCurry.Transform.Exec  ( transformFuncsInProg )
 import FlatCurry.Transform.Types ( ExprTransformation, makeT )
 
 ------------------------------------------------------------------------------
@@ -32,8 +31,7 @@ runTransform :: ExprTransformation -> String -> IO ()
 runTransform exptrans mname = do
   fprog <- readFlatCurry mname
   printProg "ORIGINAL PROGRAM:" fprog
-  let trexp = transformExpr (\() -> exptrans)
-      tprog = updProgFuncs (map (updFuncBody trexp)) fprog
+  let tprog = transformFuncsInProg (\() -> exptrans) fprog
   printProg "TRANSFORMED PROGRAM:" tprog
  where
   printProg title fprog = do

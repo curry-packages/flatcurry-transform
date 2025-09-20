@@ -15,13 +15,12 @@ module DetTransformations
  where
 
 import FlatCurry.Files   ( readFlatCurry )
-import FlatCurry.Goodies ( updFuncBody, updProgFuncs )
 import FlatCurry.Pretty  ( defaultOptions, ppProg )
 import FlatCurry.Types
 import Text.Pretty       ( pPrint )
 
-import FlatCurry.Transform.ExecDet  ( transformExprDet )
-import FlatCurry.Transform.Types    ( ExprTransformationDet, combine, makeTDet )
+import FlatCurry.Transform.ExecDet ( transformFuncsInProgDet )
+import FlatCurry.Transform.Types   ( ExprTransformationDet, combine, makeTDet )
 
 ------------------------------------------------------------------------------
 -- A simple operation to test deterministic transformations
@@ -32,8 +31,7 @@ runTransformDet :: ExprTransformationDet -> String -> IO ()
 runTransformDet exptrans mname = do
   fprog <- readFlatCurry mname
   printProg "ORIGINAL PROGRAM:" fprog
-  let trexp = transformExprDet exptrans
-      tprog = updProgFuncs (map (updFuncBody trexp)) fprog
+  let tprog = transformFuncsInProgDet exptrans fprog
   printProg "TRANSFORMED PROGRAM:" tprog
  where
   printProg title fprog = do

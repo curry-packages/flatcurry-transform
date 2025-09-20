@@ -8,26 +8,41 @@
 ------------------------------------------------------------------------------
 
 module FlatCurry.Transform.Exec
-  ( transformExpr, transformExprMax, transformExprN, showTransformExpr )
+  ( transformFuncsInProg
+  , transformExpr, transformExprMax, transformExprN, showTransformExpr )
  where
 
 import Control.Search.Unsafe ( oneValue )
 
-import Data.Tuple.Extra      ( second )
+import Data.Tuple.Extra   ( second )
+import FlatCurry.Goodies  ( updFuncBody, updProgFuncs )
 import FlatCurry.Types
-import FlatCurry.Pretty      ( ppExp, Options(..), QualMode(..) )
-import Text.Pretty           ( pPrint )
+import FlatCurry.Pretty   ( ppExp, Options(..), QualMode(..) )
+import Text.Pretty        ( pPrint )
 
 import FlatCurry.Transform.Types
 import FlatCurry.Transform.Utils ( ReWriter(..)
                                  , curVar, newVar, replace, update )
 
 ------------------------------------------------------------------------------
--- | Simplifies a FlatCurry expression according to some expression
---   transformation which can be partially or non-deterministically defined.
---   Since the expression transformation might be non-deterministic,
---   we pass it as a function which is similarly to passing it
---   via run-time choice.
+-- | Transforms the bodies of all functions in a FlatCurry program according
+--   to some expression transformation provided as the first argument.
+--   The expression transformation can be partially and also
+--   non-deterministically defined.
+--   Due to the possibility that the expression transformation might be
+--   non-deterministic, it must be passed via run-time choice which
+--   is achieved by passing it as a function.
+transformFuncsInProg :: (() -> ExprTransformation) -> Prog -> Prog
+transformFuncsInProg transf =
+  updProgFuncs (map (updFuncBody (transformExpr transf)))
+
+-- | Transforms a FlatCurry expression by applying some expression
+--   transformation provided as the first argument as long as possible.
+--   The expression transformation can be partially and also
+--   non-deterministically defined.
+--   Due to the possibility that the expression transformation might be
+--   non-deterministic, it must be passed via run-time choice which
+--   is achieved by passing it as a function.
 --
 --   Although the single transformation steps can be non-deterministic,
 --   the strategy to apply such steps is deterministic since it is applied
@@ -56,7 +71,7 @@ transformExprN n trans e =
 showTransformExpr :: Int -> (() -> ExprTransformation) -> Expr
                   -> (Expr,String,Int)
 showTransformExpr n trans e = let (e',steps) = runTrExpr trans n (newVar e) e
-                              in (e', reconstruct e steps, length steps)
+                              in (e', showTransSteps e steps, length steps)
 
 -- Apply an expression transformation (with a maximum number of steps
 -- and a fresh variable index) to an expression and return the
@@ -110,38 +125,13 @@ runExprTransform trans p e = do
     Just (e',r,dv) -> do update e' (r,p,e') dv
                          run trans p e'
 
-reconstruct :: Expr -> [Step] -> String
-reconstruct _ [] = ""
-reconstruct e ((rule, p, rhs):steps) =
+showTransSteps :: Expr -> [Step] -> String
+showTransSteps _ [] = ""
+showTransSteps e ((rule, p, rhs):steps) =
   "=> " ++ rule ++ " " ++ show (reverse p) ++ "\n" ++
   pPrint (ppExp (Options 2 QualNone "") e') ++ "\n" ++
-  reconstruct e' steps
+  showTransSteps e' steps
  where
   e' = replace e (reverse p) rhs
-
--- helper functions to make some expressions easier to construct
-applyf :: Expr -> [Expr] -> Expr
-applyf f es = Comb FuncCall ("Prelude","apply") (f:es)
-
-comp :: Expr -> Expr -> Expr
-comp f g = Comb (FuncPartCall 1) ("Prelude",".") [f,g]
-
-caseBranch :: Expr -> Expr
-caseBranch e = Case _ _ (_++[Branch _ e]++_)
-
-partCall :: Int -> QName -> [Expr] -> Expr
-partCall n f es = Comb (FuncPartCall n) f es
-                ? Comb (ConsPartCall n) f es
-
-has :: Expr -> Expr
-has e = e
-      ? (Comb _ _ (_ ++ [has e] ++ _))
-      ? (Let (_ ++ [(_, has e)] ++ _) _)
-      ? (Let _ (has e))
-      ? (Free _ (has e))
-      ? (Or (has e) _)
-      ? (Or _ (has e))
-      ? (Case _ _ (_ ++ [(Branch _ (has e))] ++ _))
-      ? (Case _ (has e) _)
 
 ------------------------------------------------------------------------------

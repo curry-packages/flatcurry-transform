@@ -7,21 +7,30 @@
 ------------------------------------------------------------------------------
 
 module FlatCurry.Transform.ExecDet
-  ( transformExprDet, transformExprMaxDet, showTransformExprDet )
+  ( transformFuncsInProgDet
+  , transformExprDet, transformExprMaxDet, showTransformExprDet )
  where
 
-import Data.Tuple.Extra      ( second )
+import Data.Tuple.Extra   ( second )
+import FlatCurry.Goodies  ( updFuncBody, updProgFuncs )
 import FlatCurry.Types
-import FlatCurry.Pretty      ( ppExp, Options(..), QualMode(..) )
-import Text.Pretty           ( pPrint )
+import FlatCurry.Pretty   ( ppExp, Options(..), QualMode(..) )
+import Text.Pretty        ( pPrint )
 
 import FlatCurry.Transform.Types
 import FlatCurry.Transform.Utils ( ReWriter(..)
                                  , curVar, newVar, replace, update )
 
 ------------------------------------------------------------------------------
--- | Simplifies an expression according to some deterministic(!)
---   expression transformation with a bottom-up strategy.
+-- | Transforms the bodies of all functions in a FlatCurry program according
+--   to some deterministic(!) expression transformation provided as
+--   the first argument.
+transformFuncsInProgDet :: ExprTransformationDet -> Prog -> Prog
+transformFuncsInProgDet trans =
+  updProgFuncs (map (updFuncBody (transformExprDet trans)))
+
+-- | Transforms an expression by applying some deterministic(!)
+--   expression transformation as long as possible with a bottom-up strategy.
 transformExprDet :: ExprTransformationDet -> Expr -> Expr
 transformExprDet = transformExprMaxDet (-1)
 
@@ -38,10 +47,9 @@ showTransformExprDet :: Int -> ExprTransformationDet
                      -> Expr -> (Expr,String,Int)
 showTransformExprDet n trans e 
   = let (e',steps) = runTrExpr trans n (newVar e) e
-    in (e', reconstruct e steps, length steps)
+    in (e', showTransSteps e steps, length steps)
 
-runTrExpr :: ExprTransformationDet -> Int -> VarIndex 
-             -> Expr -> (Expr,[Step])
+runTrExpr :: ExprTransformationDet -> Int -> VarIndex -> Expr -> (Expr,[Step])
 runTrExpr trans n v e
  | n == 0    = (e,[])
  | otherwise = let (e', s, v', seen) = runRewriter (run trans [] e) v
@@ -79,8 +87,7 @@ run trans p (Case ct e bs) = do e'  <- run trans (-1:p) e
 run trans p (Typed e te) = do e' <- run trans (0:p) e
                               runExprTransform trans p (Typed e' te)
 
--- Apply a totally defined expression transformation
--- to an expression.
+-- Apply a totally defined expression transformation to an expression.
 runExprTransform :: ExprTransformationDet -> Path -> Expr -> ReWriter Expr
 runExprTransform trans p e = do
   v <- curVar
@@ -89,14 +96,12 @@ runExprTransform trans p e = do
     Just (e',r,dv) -> do update e' (r,p,e') dv
                          run trans p e'
 
-
-
-reconstruct :: Expr -> [Step] -> String
-reconstruct _ [] = ""
-reconstruct e ((rule, p, rhs):steps) =
+showTransSteps :: Expr -> [Step] -> String
+showTransSteps _ [] = ""
+showTransSteps e ((rule, p, rhs):steps) =
   "=> " ++ rule ++ " " ++ show (reverse p) ++ "\n" ++
   pPrint (ppExp (Options 2 QualNone "") e') ++ "\n" ++
-  reconstruct e' steps
+  showTransSteps e' steps
  where
   e' = replace e (reverse p) rhs
 
